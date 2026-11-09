@@ -13,7 +13,7 @@ import httpx
 
 from . import config
 
-UA = f"MOSI-INTEL/{config.VERSION} (self-hosted research tool)"
+UA = f"MOSI-INTEL/{config.VERSION} ({config.CONTACT}; self-hosted research tool)"
 TIMEOUT = httpx.Timeout(15.0, connect=6.0)
 
 
@@ -224,8 +224,11 @@ class SearchService:
             r = httpx.get(url, timeout=TIMEOUT, headers={"User-Agent": UA, **kw.pop("headers", {})}, **kw)
         except httpx.HTTPError as e:
             raise ProviderError(f"{name}: nicht erreichbar ({type(e).__name__}).")
-        if r.status_code == 401 or r.status_code == 403:
-            raise ProviderError(f"{name}: Zugriff verweigert (API-Schlüssel / JSON-Format prüfen).")
+        if r.status_code in (401, 403):
+            hint = {"Brave": "API-Schlüssel prüfen", "SearXNG": "JSON-Format in SearXNG aktivieren (search.formats: json) bzw. Limiter prüfen",
+                    "Wikipedia": "User-Agent wurde abgelehnt – MOSI_CONTACT in .env auf eine eigene URL/E-Mail setzen",
+                    "Nominatim": "User-Agent wurde abgelehnt – MOSI_CONTACT in .env setzen"}.get(name, "Zugangsdaten prüfen")
+            raise ProviderError(f"{name}: Zugriff verweigert (HTTP {r.status_code}) – {hint}.")
         if r.status_code == 429:
             raise ProviderError(f"{name}: Kontingent/Rate-Limit erreicht.")
         if r.status_code != 200:

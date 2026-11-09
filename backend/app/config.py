@@ -30,3 +30,6 @@ ALLOW_PUBLIC = _bool("MOSI_ALLOW_PUBLIC", False)
 # Standardwerte für Suchanbieter (können in den Einstellungen überschrieben werden)
 DEFAULT_SEARXNG_URL = os.getenv("SEARXNG_URL", "")
 DEFAULT_BRAVE_KEY = os.getenv("BRAVE_API_KEY", "")
+
+# Wikimedia/Nominatim verlangen einen User-Agent mit Kontaktangabe (URL oder E-Mail).
+CONTACT = os.getenv("MOSI_CONTACT", "https://github.com/mosi-pro/personen-erkennung")
