@@ -95,14 +95,27 @@ export default function ImageResearch() {
               {s && (
                 <>
                   {s.errors?.length > 0 && <Alert kind="warn">{s.errors.join(" | ")}</Alert>}
-                  <section><h2 className="text-sm font-semibold mb-3">Ähnliche Bilder ({s.images.length})</h2>
-                    {s.images.length === 0 ? <div className="card"><Empty icon={<Search />} title="Keine Bildtreffer" /></div> :
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{s.images.map((i: any) => (
+                  {s.notes?.map((n: string) => <Alert key={n} kind="info">{n}</Alert>)}
+                  <Alert kind="info">Die Bildsuche sucht öffentliche Anbieter nach den Suchbegriffen ab – sie ist kein Abgleich gegen einen vollständigen Bildindex des Internets. „Visuell ähnlich“ markierte Treffer wurden zusätzlich lokal mit deinem Bild verglichen; unmarkierte Treffer passen nur zum Suchbegriff.</Alert>
+                  {(() => {
+                    const similar = s.images.filter((i: any) => i.similar);
+                    const others = s.images.filter((i: any) => !i.similar);
+                    const grid = (list: any[]) => (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{list.map((i: any) => (
                         <a key={i.url} href={i.url} target="_blank" rel="noopener noreferrer nofollow" className="card overflow-hidden hover:border-accent/60 group">
                           <div className="aspect-square bg-bg grid place-items-center">{i.thumbnail ? <img src={i.thumbnail} alt={i.title} loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} /> : <span className="text-xs text-dim">Keine Vorschau</span>}</div>
-                          <div className="p-2.5"><div className="text-xs line-clamp-2 group-hover:text-accent">{i.title}</div><div className="flex justify-between mt-1.5 text-[11px] text-mute"><span className="font-mono truncate">{i.domain}</span>{i.similarity != null && <span className="text-accent shrink-0 ml-2">{i.similarity}%</span>}</div></div>
-                        </a>))}</div>}
-                  </section>
+                          <div className="p-2.5"><div className="text-xs line-clamp-2 group-hover:text-accent">{i.title}</div><div className="flex justify-between mt-1.5 text-[11px] text-mute"><span className="font-mono truncate">{i.domain}</span>{i.similarity != null && <span className="text-ok shrink-0 ml-2">{i.similarity}%</span>}</div></div>
+                        </a>))}</div>
+                    );
+                    return (
+                      <>
+                        <section><h2 className="text-sm font-semibold mb-3">Visuell ähnliche Bilder ({similar.length})</h2>
+                          {similar.length === 0 ? <div className="card"><Empty icon={<Search />} title="Keine visuell ähnlichen Bilder gefunden" /></div> : grid(similar)}
+                        </section>
+                        {others.length > 0 && <section><h2 className="text-sm font-semibold mb-3">Weitere Treffer zu den Suchbegriffen ({others.length})</h2>{grid(others)}</section>}
+                      </>
+                    );
+                  })()}
                   {s.pages.length > 0 && <section><h2 className="text-sm font-semibold mb-3">Relevante Fundstellen ({s.pages.length})</h2><div className="space-y-3">{s.pages.map((p: any) => <SourceCard key={p.url} s={toSource(p)} kind="image" category="Bild" />)}</div></section>}
                 </>
               )}

@@ -136,8 +136,16 @@ def read_qr(im: Image.Image) -> str | None:
         return None
 
 
+MIN_WORD_CONF = 60.0  # Tesseract-Konfidenz (0–100) je Wort; darunter wird verworfen
+
+
 def ocr(im: Image.Image) -> tuple[str, bool]:
-    """Texterkennung über das Tesseract-CLI (falls installiert). Rückgabe: (Text, verfügbar)."""
+    """Texterkennung über das Tesseract-CLI (falls installiert), gefiltert nach Erkennungssicherheit.
+
+    Auf gewöhnlichen Fotos (Rauschen, Texturen, Kanten) "erkennt" Tesseract häufig Phantomwörter mit sehr
+    niedriger Konfidenz. Ohne Filterung würden diese als Suchbegriffe verwendet und liefern dann irrelevante
+    Treffer. Deshalb wird die TSV-Ausgabe mit Konfidenzwert je Wort ausgewertet statt des reinen Klartexts.
+    """
     exe = shutil.which("tesseract")
     if not exe:
         return "", False
@@ -145,14 +153,40 @@ def ocr(im: Image.Image) -> tuple[str, bool]:
     try:
         im.save(tmp, "PNG")
         for lang in ("deu+eng", "eng"):
-            r = subprocess.run([exe, str(tmp), "stdout", "-l", lang, "--psm", "11"], capture_output=True, text=True, timeout=25)
+            r = subprocess.run([exe, str(tmp), "stdout", "-l", lang, "--psm", "11", "tsv"], capture_output=True, text=True, timeout=25)
             if r.returncode == 0:
-                return r.stdout, True
+                return _tsv_to_text(r.stdout), True
         return "", True
     except (subprocess.SubprocessError, OSError):
         return "", True
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def _tsv_to_text(tsv: str) -> str:
+    """Baut aus Tesseracts TSV-Ausgabe nur die Wörter mit ausreichender Konfidenz zu Zeilen zusammen."""
+    lines: dict[tuple[str, str, str], list[str]] = {}
+    rows = tsv.splitlines()
+    if not rows:
+        return ""
+    header = rows[0].split("\t")
+    try:
+        ci, wi, bi, pi, li = header.index("conf"), header.index("text"), header.index("block_num"), header.index("par_num"), header.index("line_num")
+    except ValueError:
+        return ""
+    for row in rows[1:]:
+        cols = row.split("\t")
+        if len(cols) <= max(ci, wi, bi, pi, li):
+            continue
+        try:
+            conf = float(cols[ci])
+        except ValueError:
+            continue
+        word = cols[wi].strip()
+        if conf < MIN_WORD_CONF or not word:
+            continue
+        lines.setdefault((cols[bi], cols[pi], cols[li]), []).append(word)
+    return "\n".join(" ".join(words) for words in lines.values())
 
 
 def terms_from_text(text: str, limit: int = 5) -> list[str]:
@@ -205,20 +239,32 @@ def analyze(data: bytes, include_exif: bool, svc: P.SearchService) -> dict:
     return res
 
 
+SIMILARITY_FLOOR = 70.0
+# Empirisch kalibriert: Der lokale Perceptual-Hash-Vergleich ist verrauscht – bei strukturierten Testbildern
+# lagen auch völlig unterschiedliche Motive bei 47–63 %, während Größenänderungen/Zuschnitte desselben Bildes
+# 85–95 % erreichten. Erst deutlich über dem Zufallsniveau gilt ein Treffer als "visuell ähnlich".
+
+
 def _score(hit: P.Hit, sig: dict) -> P.Hit | None:
-    if not hit.thumbnail:
-        return None
-    raw = P.safe_fetch(hit.thumbnail) if hit.thumbnail.startswith("http") else None
-    if not raw:
-        return None
-    try:
-        im = Image.open(io.BytesIO(raw))
-        im.load()
-        hit.snippet = f"{hit.snippet}".strip()
-        hit.published = str(similarity(sig, signature(work_copy(im, 256))))  # Ähnlichkeit in published zwischengespeichert
-        return hit
-    except Exception:  # noqa: BLE001
-        return None
+    # Das Originalbild (img_src) ist aussagekräftiger als ein winziges, stark komprimiertes Vorschaubild –
+    # deshalb zuerst versuchen und nur bei Fehlschlag auf das Thumbnail ausweichen.
+    for url in (hit.img_src, hit.thumbnail):
+        if not url or not url.startswith("http"):
+            continue
+        raw = P.safe_fetch(url, max_bytes=4_000_000)
+        if not raw:
+            continue
+        try:
+            im = Image.open(io.BytesIO(raw))
+            im.load()
+            if min(im.size) < 24:  # zu klein (Icon/Platzhalter) für eine aussagekräftige Bewertung
+                continue
+            hit.snippet = f"{hit.snippet}".strip()
+            hit.published = str(similarity(sig, signature(work_copy(im, 256))))  # Ähnlichkeit in published zwischengespeichert
+            return hit
+        except Exception:  # noqa: BLE001
+            continue
+    return None
 
 
 def search(svc: P.SearchService, terms: list[str], sig: dict) -> dict:
@@ -250,7 +296,11 @@ def search(svc: P.SearchService, terms: list[str], sig: dict) -> dict:
     for h in images:
         d = h.to_dict()
         d.pop("published", None)
-        d["similarity"] = scored.get(h.url)
+        sim = scored.get(h.url)
+        # Die Ähnlichkeit ist ein grober, lokaler Bildvergleich (kein Abgleich mit einem echten Bildindex).
+        # Unterhalb der Schwelle wird sie nicht als "ähnlich" ausgewiesen, um keine falsche Sicherheit vorzutäuschen.
+        d["similarity"] = sim if sim is not None and sim >= SIMILARITY_FLOOR else None
+        d["similar"] = d["similarity"] is not None
         d["domain"] = P.domain_of(h.url)
         d["trust"] = P.trust(d["domain"])
         res.append(d)
@@ -261,7 +311,10 @@ def search(svc: P.SearchService, terms: list[str], sig: dict) -> dict:
         d["domain"] = P.domain_of(h.url)
         d["trust"] = P.trust(d["domain"])
         web.append(d)
-    return {"terms": terms, "images": res, "pages": web, "errors": sorted(set(errors))}
+    notes = []
+    if res and not any(r["similar"] for r in res):
+        notes.append("Keines der gefundenen Bilder konnte als visuell ähnlich bestätigt werden – die Treffer stammen aus einer reinen Stichwortsuche zu den Suchbegriffen, nicht aus einem echten Bildvergleich.")
+    return {"terms": terms, "images": res, "pages": web, "errors": sorted(set(errors)), "notes": notes}
 
 
 def store_image(data: bytes, ext: str) -> str:

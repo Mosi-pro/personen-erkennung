@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import providers as P  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import image_research as IR  # noqa: E402
 from app.services import name_research  # noqa: E402
 
 
@@ -223,3 +224,66 @@ def test_ssrf_guard():
 def test_name_helpers():
     assert name_research.norm("Müller, Jörg") == "muller jorg"
     assert name_research.name_match(name_research.norm("Mueller Max"), name_research.tokens("Max Mueller"))
+
+
+TSV_HEADER = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext"
+
+
+def test_ocr_drops_low_confidence_phantom_words():
+    # Reale Tesseract-Ausgabe auf einem texturierten Foto ohne echten Text: einzelne "Wörter" mit sehr
+    # niedriger Konfidenz, die unterschiedlichen Zeilen zugeordnet sind und daher nicht zu einem
+    # scheinbar plausiblen Suchbegriff verschmelzen dürfen.
+    tsv = "\n".join([
+        TSV_HEADER,
+        "5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t30.8\tby",
+        "5\t1\t2\t1\t1\t1\t0\t0\t10\t10\t3.6\tCog",
+        "5\t1\t3\t1\t1\t1\t0\t0\t10\t10\t18.2\taoe,",
+    ])
+    assert IR._tsv_to_text(tsv) == ""  # alle Wörter unter MIN_WORD_CONF werden verworfen
+    assert IR.terms_from_text(IR._tsv_to_text(tsv)) == []  # keine Suchbegriffe aus Phantomwörtern
+
+
+def test_ocr_keeps_high_confidence_words_on_same_line():
+    tsv = "\n".join([
+        TSV_HEADER,
+        "5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t92.1\tCafe",
+        "5\t1\t1\t1\t1\t2\t20\t0\t10\t10\t88.4\tZentral",
+        "5\t1\t2\t1\t1\t1\t0\t0\t10\t10\t12.0\tjunk",  # andere Zeile, niedrige Konfidenz
+    ])
+    text = IR._tsv_to_text(tsv)
+    assert text.splitlines() == ["Cafe Zentral"]
+    assert IR.terms_from_text(text) == ["Cafe Zentral"]
+
+
+def _structured_png(seed):
+    import random
+    random.seed(seed)
+    im = Image.new("RGB", (120, 90))
+    d = ImageDraw.Draw(im)
+    for _ in range(40):
+        x1, y1 = random.randint(0, 120), random.randint(0, 90)
+        x2, y2 = x1 + random.randint(-30, 30), y1 + random.randint(-30, 30)
+        d.rectangle([min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)], fill=tuple(random.randint(0, 255) for _ in range(3)))
+    b = io.BytesIO(); im.save(b, "PNG"); return b.getvalue()
+
+
+def test_image_similarity_floor_separates_real_matches_from_keyword_noise(client, auth, monkeypatch):
+    base = _structured_png(1)
+    sig = IR.signature(IR.work_copy(Image.open(io.BytesIO(base))))
+
+    def fake_images(self, query, limit=12):
+        return [P.Hit("gleiches Bild", "https://a.example/1", img_src="https://cdn.example/1.jpg", provider="searxng"),
+                P.Hit("anderes Bild", "https://b.example/2", img_src="https://cdn.example/2.jpg", provider="searxng")], []
+
+    def fake_fetch(url, **k):
+        return base if "1.jpg" in url else _structured_png(2)  # unverwandtes, gleich strukturiertes Bild
+
+    monkeypatch.setattr(P.SearchService, "images", fake_images)
+    monkeypatch.setattr(P.SearchService, "web", lambda self, *a, **k: ([], []))
+    monkeypatch.setattr(IR.P, "safe_fetch", fake_fetch)
+    res = IR.search(P.SearchService({}), ["Testbegriff"], sig)
+    by_url = {i["url"]: i for i in res["images"]}
+    assert by_url["https://a.example/1"]["similar"] is True
+    assert by_url["https://a.example/1"]["similarity"] >= IR.SIMILARITY_FLOOR
+    assert by_url["https://b.example/2"]["similar"] is False
+    assert by_url["https://b.example/2"]["similarity"] is None
