@@ -1,0 +1,16 @@
+# SearXNG-Konfiguration für MOSI INTEL: JSON-API aktiv, Limiter aus (nur internes Netz, nicht veröffentlicht).
+use_default_settings: true
+general:
+  instance_name: "MOSI Search"
+  enable_metrics: false
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+server:
+  limiter: false
+  image_proxy: false
+  secret_key: "overridden-by-SEARXNG_SECRET-env"
+ui:
+  static_use_hash: true

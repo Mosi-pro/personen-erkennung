@@ -1,0 +1,21 @@
+@import "@fontsource-variable/inter";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { @apply bg-bg text-ink font-sans antialiased; font-feature-settings: "cv11", "ss01"; }
+::selection { background: #4388ff55; }
+* { scrollbar-width: thin; scrollbar-color: #2f3847 transparent; }
+
+@layer components {
+  .card { @apply bg-panel border border-line rounded-md; }
+  .card-h { @apply px-4 py-3 border-b border-line flex items-center gap-2 text-[13px] font-medium; }
+  .label { @apply block text-[11px] uppercase tracking-wider text-mute mb-1.5 font-medium; }
+  .input { @apply w-full bg-bg border border-line rounded px-3 py-2 text-sm text-ink placeholder:text-dim outline-none focus:border-accent transition-colors; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded px-3.5 py-2 text-sm font-medium border border-line2 bg-panel2 text-ink hover:border-accent/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors; }
+  .btn-primary { @apply bg-accent border-accent text-white hover:bg-accent2 hover:border-accent2; }
+  .btn-danger { @apply hover:border-bad hover:text-bad; }
+  .btn-sm { @apply px-2.5 py-1.5 text-xs; }
+  .chip { @apply inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-line2 text-mute; }
+}

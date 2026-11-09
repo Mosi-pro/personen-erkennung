@@ -1,0 +1,45 @@
+# MOSI INTEL – Docker Compose
+# Port & Bind-Adresse kommen aus .env (siehe .env.example).
+services:
+  mosi:
+    build:
+      context: .
+      args:
+        INSTALL_OCR: ${INSTALL_OCR:-1}
+    image: mosi-intel:latest
+    container_name: mosi-intel
+    restart: unless-stopped
+    env_file: .env
+    # Standard: nur an die LAN-IP bzw. localhost gebunden, nie an alle Schnittstellen ohne ausdrückliche Konfiguration.
+    ports:
+      - "${MOSI_BIND:-127.0.0.1}:${MOSI_PORT:-8080}:8080"
+    volumes:
+      - ./data:/data
+    mem_limit: 768m
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+
+  # Optional: eigener Metasucher (kostenlos). Start mit:  docker compose --profile searxng up -d
+  searxng:
+    profiles: ["searxng"]
+    image: searxng/searxng:latest
+    container_name: mosi-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-change-me-please}
+      SEARXNG_BASE_URL: http://searxng:8080/
+    volumes:
+      - ./docker/searxng:/etc/searxng:rw
+    mem_limit: 384m
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    # kein veröffentlichter Port: nur MOSI INTEL erreicht SearXNG im internen Docker-Netz

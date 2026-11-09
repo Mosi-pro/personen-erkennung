@@ -1,0 +1,9 @@
+.git
+data
+backups
+.env
+**/node_modules
+**/dist
+backend/static
+backend/tests
+**/__pycache__
