@@ -19,8 +19,8 @@ done
 say() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mFehler:\033[0m %s\n' "$*" >&2; exit 1; }
 
-command -v docker >/dev/null || die "Docker ist nicht installiert. Debian: sudo apt install docker.io docker-compose-v2   (oder https://docs.docker.com/engine/install/debian/)"
-docker compose version >/dev/null 2>&1 || die "Docker Compose v2 fehlt (apt install docker-compose-v2)."
+command -v docker >/dev/null || die "Docker ist nicht installiert. Debian: sudo apt install docker.io docker-compose docker-buildx   (oder https://docs.docker.com/engine/install/debian/)"
+docker compose version >/dev/null 2>&1 || die "Docker Compose v2 fehlt (apt install docker-compose docker-buildx)."
 docker info >/dev/null 2>&1 || die "Kein Zugriff auf den Docker-Daemon. Läuft er? Gehört dein Benutzer zur Gruppe 'docker' (oder mit sudo starten)?"
 
 rand() { head -c 64 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c "$1"; }

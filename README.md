@@ -20,7 +20,7 @@ Selbst gehostete OSINT-Rechercheplattform für öffentlich zugängliche Informat
 
 ## Installation (Debian 13 / Docker)
 
-Voraussetzung: `sudo apt install docker.io docker-compose-v2 git`
+Voraussetzung: `sudo apt install docker.io docker-compose docker-buildx git`
 
 ```bash
 git clone <dieses-repository> mosi-intel && cd mosi-intel
